@@ -1,4 +1,4 @@
-name: Build macOS ARM64
+name: Build macOS ARM64 ZIP
 
 on:
   workflow_dispatch:
@@ -14,20 +14,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Show repository info
-        run: |
-          echo "===== .gitmodules ====="
-          cat .gitmodules || true
-
-          echo "===== Submodule gitlinks ====="
-          git ls-files --stage | grep 160000 || true
+        with:
+          submodules: false
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: npm
+          node-version: "22"
+          cache: "npm"
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -44,31 +38,37 @@ jobs:
         run: npm run build:electron
 
       - name: Build native modules
-        run: npm run build:native
-
-      - name: Fix Sharp dependencies
-        run: node scripts/ensure-sharp-mac-deps.js
-
-      - name: Install create-dmg
         run: |
-          which create-dmg >/dev/null 2>&1 || brew install create-dmg
+          export NATIVELY_BUILD_ALL_MAC_ARCHES=0
+          npm run build:native
 
-      - name: Package macOS ARM64
+      - name: Fix Sharp macOS dependencies
+        run: |
+          if [ -f scripts/ensure-sharp-mac-deps.js ]; then
+            node scripts/ensure-sharp-mac-deps.js
+          fi
+
+      - name: Package ARM64 ZIP only
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           CSC_FOR_PULL_REQUEST: true
         run: |
-          npx electron-builder --mac --arm64 --publish never
+          npx electron-builder \
+            --mac zip \
+            --arm64 \
+            --publish never
 
       - name: Show generated files
+        if: always()
         run: |
-          echo "===== release ====="
+          echo "===== RELEASE FILES ====="
           find release -type f || true
 
-          echo "===== dist ====="
+          echo "===== DIST FILES ====="
           find dist -type f || true
 
       - name: Upload artifacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: natively-macos-arm64
