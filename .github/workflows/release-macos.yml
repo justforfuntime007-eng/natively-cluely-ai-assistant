@@ -1,4 +1,4 @@
-name: Build macOS ARM64
+name: Build macOS ARM64 (Premium Test)
 
 on:
   workflow_dispatch:
@@ -18,7 +18,7 @@ jobs:
           submodules: false
           fetch-depth: 1
 
-      - name: Debug repository
+      - name: Debug gitlinks
         run: |
           echo "=== .gitmodules ==="
           cat .gitmodules || true
@@ -26,25 +26,31 @@ jobs:
           echo "=== Gitlinks ==="
           git ls-files --stage | grep 160000 || true
 
-      - name: Remove stale natively-api reference
+      - name: Remove stale natively-api
         run: |
           git rm --cached natively-api || true
           rm -rf .git/modules/natively-api || true
           rm -rf natively-api || true
 
-      - name: Initialize premium submodule only
+      - name: Clone premium using GITHUB_TOKEN
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git submodule init premium || true
-          git submodule update --depth 1 premium || true
+          rm -rf premium
 
-          echo "=== Premium contents ==="
-          ls -la premium || true
+          git clone \
+            https://x-access-token:${GH_TOKEN}@github.com/Natively-AI-assistant/natively-premium.git \
+            premium
+
+          echo "=== PREMIUM CONTENTS ==="
+          ls -la premium
+          find premium | head -50
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: "npm"
+          cache: npm
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
