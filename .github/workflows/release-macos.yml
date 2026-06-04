@@ -1,4 +1,4 @@
-name: Build macOS ARM64 ZIP
+name: Build macOS (Unsigned)
 
 on:
   workflow_dispatch:
@@ -12,50 +12,58 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Checkout
+      - name: Checkout (with submodules)
         uses: actions/checkout@v4
         with:
-          submodules: false
+          submodules: recursive
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22"
-          cache: "npm"
+          node-version: '22'
+          cache: 'npm'
 
-      - name: Setup Rust
+      - name: Setup Rust (native module)
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-apple-darwin
+          targets: x86_64-apple-darwin,aarch64-apple-darwin
+
+      - name: Verify premium submodule
+        run: |
+          echo "=== SUBMODULES ==="
+          git submodule status || true
+
+          echo "=== PREMIUM ==="
+          ls -la premium || true
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Build renderer
-        run: npm run build
-
-      - name: Build Electron
-        run: npm run build:electron
-
-      - name: Build native modules
+      - name: Build application
         run: |
-          export NATIVELY_BUILD_ALL_MAC_ARCHES=0
-          npm run build:native
+          set -euo pipefail
 
-      - name: Fix Sharp macOS dependencies
+          npm run build
+          npm run build:electron
+
+          NATIVELY_BUILD_ALL_MAC_ARCHES=1 npm run build:native
+
+          node scripts/ensure-sharp-mac-deps.js
+
+      - name: Install create-dmg
         run: |
-          if [ -f scripts/ensure-sharp-mac-deps.js ]; then
-            node scripts/ensure-sharp-mac-deps.js
-          fi
+          which create-dmg >/dev/null 2>&1 || brew install create-dmg
 
-      - name: Package ARM64 ZIP only
+      - name: Package app (no signing / no notarization)
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           CSC_FOR_PULL_REQUEST: true
         run: |
-          npx electron-builder \
+          set -euo pipefail
+
+          ./node_modules/.bin/electron-builder \
             --mac zip \
-            --arm64 \
+            --config electron-builder.signed.cjs \
             --publish never
 
       - name: Show generated files
@@ -64,14 +72,14 @@ jobs:
           echo "===== RELEASE FILES ====="
           find release -type f || true
 
-          echo "===== DIST FILES ====="
-          find dist -type f || true
+          echo "===== APP BUNDLES ====="
+          find release -name "*.app" || true
 
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: natively-macos-arm64
+          name: natively-macos-build
           path: |
             release/**
             dist/**
