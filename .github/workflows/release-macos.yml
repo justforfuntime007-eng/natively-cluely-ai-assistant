@@ -1,4 +1,4 @@
-name: Build macOS (Unsigned)
+name: Build macOS ARM64
 
 on:
   workflow_dispatch:
@@ -12,55 +12,69 @@ jobs:
     timeout-minutes: 90
 
     steps:
-      - name: Checkout (with submodules)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
+          fetch-depth: 1
+
+      - name: Debug repository
+        run: |
+          echo "=== .gitmodules ==="
+          cat .gitmodules || true
+
+          echo "=== Gitlinks ==="
+          git ls-files --stage | grep 160000 || true
+
+      - name: Remove stale natively-api reference
+        run: |
+          git rm --cached natively-api || true
+          rm -rf .git/modules/natively-api || true
+          rm -rf natively-api || true
+
+      - name: Initialize premium submodule only
+        run: |
+          git submodule init premium || true
+          git submodule update --depth 1 premium || true
+
+          echo "=== Premium contents ==="
+          ls -la premium || true
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: "22"
+          cache: "npm"
 
-      - name: Setup Rust (native module)
+      - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin,aarch64-apple-darwin
 
-      - name: Verify premium submodule
-        run: |
-          echo "=== SUBMODULES ==="
-          git submodule status || true
-
-          echo "=== PREMIUM ==="
-          ls -la premium || true
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Build application
+      - name: Build renderer
+        run: npm run build
+
+      - name: Build Electron
+        run: npm run build:electron
+
+      - name: Build native modules
         run: |
-          set -euo pipefail
-
-          npm run build
-          npm run build:electron
-
           NATIVELY_BUILD_ALL_MAC_ARCHES=1 npm run build:native
 
-          node scripts/ensure-sharp-mac-deps.js
-
-      - name: Install create-dmg
+      - name: Fix Sharp dependencies
         run: |
-          which create-dmg >/dev/null 2>&1 || brew install create-dmg
+          if [ -f scripts/ensure-sharp-mac-deps.js ]; then
+            node scripts/ensure-sharp-mac-deps.js
+          fi
 
-      - name: Package app (no signing / no notarization)
+      - name: Package app
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: false
           CSC_FOR_PULL_REQUEST: true
         run: |
-          set -euo pipefail
-
           ./node_modules/.bin/electron-builder \
             --mac zip \
             --config electron-builder.signed.cjs \
@@ -69,11 +83,11 @@ jobs:
       - name: Show generated files
         if: always()
         run: |
-          echo "===== RELEASE FILES ====="
+          echo "=== RELEASE FILES ==="
           find release -type f || true
 
-          echo "===== APP BUNDLES ====="
-          find release -name "*.app" || true
+          echo "=== APP FILES ==="
+          find . -name "*.app" || true
 
       - name: Upload artifacts
         if: always()
@@ -83,4 +97,5 @@ jobs:
           path: |
             release/**
             dist/**
+            **/*.app
           if-no-files-found: warn
